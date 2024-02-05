@@ -23,6 +23,7 @@ def _load_json_data(soup: BeautifulSoup, data_component_name: str) -> dict:
             "data-component-name": data_component_name,
         },
     )
+    logging.getLogger().info(f"[_load_json_data] data_component_name: {data_component_name}")
     return json.loads(script.string)
 
 
@@ -30,15 +31,21 @@ def _sanitize_cookie_value(value: str) -> str:
     return value.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D")
 
 
+def _sanitize_filename(filename: str) -> str:
+    return re.sub(r"[^\w\s-]", "", filename)
+
+
 # https://www.xormedia.com/string-truncate-middle-with-ellipsis/
 def shorten(s: str, n: int = 40) -> str:
     if len(s) <= n:
         return s
 
-    n_2 = int(n) / 2 - 3
-    n_1 = n - n_2 - 3
+    # these 2 used to generate floats
+    # force int since (slice indices must be integers or None)
+    n_2 = int(int(n) / 2 - 3)
+    n_1 = int(n - n_2 - 3)
 
-    return "{0}..{1}".format(s[:n_1], s[-n_2:])
+    return '{0}...{1}'.format(s[:n_1], s[-n_2:])
 
 
 class GumroadSession(_RequestsSession):
@@ -61,7 +68,7 @@ class GumroadSession(_RequestsSession):
 
 class GumroadScrapper:
     def __init__(
-        self, session: GumroadSession, root_folder: Path, product_folder_tmpl: str
+            self, session: GumroadSession, root_folder: Path, product_folder_tmpl: str
     ) -> None:
         self._session = session
         self._root_folder = root_folder
@@ -80,26 +87,27 @@ class GumroadScrapper:
             for k, v in json.load(f).items():
                 self._files_cache[k] = set(v)
 
-        self._logger.debug("Cache has been loaded.")
+        self._logger.info("Cache has been loaded.")
 
     def save_cache(self, file_path: Path) -> None:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(self._files_cache, f, default=list, indent=2)
 
-        self._logger.debug("Cache has been saved.")
+        self._logger.info("Cache has been saved.")
 
     def _is_file_cached(self, product_id: str, file_id: str) -> bool:
         return file_id in self._files_cache.get(product_id, [])
 
     def _cache_file(self, product_id: str, file_id: str) -> None:
         if product_id not in self._files_cache:
-            self._files_cache[product_id] = set([file_id])
+            self._files_cache[product_id] = {file_id}
         else:
             self._files_cache[product_id].add(file_id)
 
     # Pages - Library
 
     def scrape_library(self, creators: set[str]) -> None:
+        self._logger.info("[scrape_library] start")
         soup = self._session.get_soup(self._session.base_url + "/library")
         self._detect_redirect(soup)
 
@@ -113,22 +121,23 @@ class GumroadScrapper:
             creator = result["product"]["creator"]["name"]
             product = result["product"]["name"]
 
-            if creator_username not in creators:
-                self._logger.debug("Skipping %r product of %r.", product, creator)
+            if creator_username not in creators and "*" not in creators:
+                self._logger.info("Skipping %r product of %r.", product, creator)
                 continue
 
-            if result["product"]["is_bundle"]:
-                self._logger.info(
-                    "Skipping %r product of %r because it's a bundle!", product, creator
-                )
-                continue
+            if "is_bundle" in set(result["product"]):
+                if result["product"]["is_bundle"]:
+                    self._logger.info(
+                        "Skipping %r product of %r because it's a bundle!", product, creator
+                    )
+                    continue
 
-            updated_at = datetime.fromisoformat(result["product"]["updated_at"]).date()
+            updated_at = datetime.fromisoformat(result["product"]["updated_at"].split("T")[0]).date()
             self.scrap_product_page(result["purchase"]["download_url"], updated_at)
 
     # Pages - Product content
 
-    def scrap_product_page(self, url: str, uploaded_at: date | None = None) -> None:
+    def scrap_product_page(self, url: str, uploaded_at: date = date.today()) -> None:
         if url.isalnum():
             url = f"{self._session.base_url}/d/{url}"
 
@@ -148,11 +157,11 @@ class GumroadScrapper:
 
         recipe_link = f"{self._session.base_url}/purchases/{script['purchase']['id']}/receipt"
         price = self._scrap_recipe_page(recipe_link)
-        purchase_date = datetime.fromisoformat(script["purchase"]["created_at"]).date()
+        purchase_date = datetime.fromisoformat(script["purchase"]["created_at"].split("T")[0]).date()
 
         try:
             product_folder_name = self._product_folder_tmpl.format(
-                product_name=product_name,
+                product_name=_sanitize_filename(product_name),
                 purchase_at=purchase_date,
                 uploaded_at=uploaded_at,
                 price=price,
@@ -226,6 +235,8 @@ class GumroadScrapper:
                 file_path = (parent_folder / file_name).with_suffix("." + file_type)
                 file_idx += 1
 
+                logging.getLogger().info("Downloading %s, to folder: %s", file_name, file_path)
+
                 self._fancy_download_file(
                     product_id,
                     file_id,
@@ -252,21 +263,21 @@ class GumroadScrapper:
     # File downloader
 
     def _fancy_download_file(
-        self,
-        product_id: str,
-        file_id: str,
-        url: str,
-        tree_path: Path,
-        file_path: Path,
-        files_total_count: int = 0,
-        file_idx: int = 0,
-        *,
-        transient: bool,
+            self,
+            product_id: str,
+            file_id: str,
+            url: str,
+            tree_path: Path,
+            file_path: Path,
+            files_total_count: int = 0,
+            file_idx: int = 0,
+            *,
+            transient: bool,
     ) -> None:
         tree_file_path = tree_path / file_path.name
 
         if self._is_file_cached(product_id, file_id):
-            self._logger.debug("'%s' is already downloaded! Skipping.", tree_file_path)
+            self._logger.info("'%s' is already downloaded! Skipping.", tree_file_path)
             return
 
         response = self._session.get(url, stream=True)

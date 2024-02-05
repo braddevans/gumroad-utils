@@ -26,7 +26,7 @@ def main() -> None:
     try:
         args = get_cli_arg_parser().parse_args()
     except FileNotFoundError as e:
-        print(f"File not found: {str(e)}!")
+        logging.getLogger().info(f"File not found: {str(e)}!")
         sys.exit(1)
 
     logging.basicConfig(
@@ -60,7 +60,7 @@ def main() -> None:
         elif args.links:
             links = cast(Path, args.links).open().readlines()
             if not links:
-                logging.getLogger().debug("File with links is empty.")
+                logging.getLogger().info("File with links is empty.")
                 return
 
         if isinstance(args.creator, str):
@@ -77,6 +77,7 @@ def main() -> None:
 
         if links:
             for link in links:
+                logging.getLogger().info(f"Scraping {link}")
                 scrapper.scrap_product_page(link)
                 gc.collect()
         else:
