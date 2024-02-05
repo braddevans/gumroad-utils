@@ -90,11 +90,24 @@ Therefore if you want to configure it, you need to call [logging.basicConfig](ht
 
 This project also exposes a simple `gumroad-utils` command that can either download your whole library or a single product.
 
+```
+help:
+  gumroad-utils
+    {full_url} - (e.g.: https://app.gumroad.com/d/f0000000000000000000000000000000)
+    {page} - (e.g.: f0000000000000000000000000000000)
+
+Args:
+ -c /path/to/config_file.ini
+ -o /download/output/path/
+ --creator  (e.g. 1: --creator creator_1)
+            (e.g. 2: --creator "*") for all
+```
+
 To download all products in your library, run one of below command:
 
 ```bash
-gumroad-utils
-gumroad-utils -c path/to/my-config.ini -o path/to/output/directory
+gumroad-utils --creator "*"
+gumroad-utils -c path/to/my-config.ini -o path/to/output/directory --creator "*"
 ```
 
 To download a single product, run one of below command:
