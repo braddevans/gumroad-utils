@@ -230,6 +230,19 @@ class GumroadScrapper:
                 file_id = item["id"]
                 file_name = item["file_name"]
                 file_type = item["extension"].lower()
+
+                logging.getLogger().info(
+                    "download_url [type: %s]: %s",
+                    str(type(item["download_url"])),
+                    item["download_url"]
+                )
+
+                # sometimes download_url is not a string for some unknown reason
+                # TODO: investigate at somepoint it works for now
+                if str(type(item["download_url"])) != "<class 'str'>":
+                    logging.getLogger().info("Skipping file %s because it's not downloadable.", file_name)
+                    continue
+
                 file_url = self._session.base_url + item["download_url"]
 
                 file_path = (parent_folder / file_name).with_suffix("." + file_type)
