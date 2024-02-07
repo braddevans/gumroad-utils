@@ -34,6 +34,9 @@ def _sanitize_cookie_value(value: str) -> str:
 def _sanitize_filename(filename: str) -> str:
     return re.sub(r"[^\w\s-]", "", filename)
 
+def _sanitize_string(value: str) -> str:
+    return value.replace("\n", "").replace("\t", "").replace("\r", "").replace("/","").replace("\\","").strip()
+
 
 # https://www.xormedia.com/string-truncate-middle-with-ellipsis/
 def shorten(s: str, n: int = 40) -> str:
@@ -61,7 +64,7 @@ class GumroadSession(_RequestsSession):
         return "https://app.gumroad.com"
 
     def get_soup(self, url: str) -> BeautifulSoup:
-        response = self.get(url, allow_redirects=False)
+        response = self.get(url, allow_redirects=False, timeout=60)
         response.raise_for_status()
         return BeautifulSoup(response.content, "lxml")
 
@@ -107,7 +110,6 @@ class GumroadScrapper:
     # Pages - Library
 
     def scrape_library(self, creators: set[str]) -> None:
-        self._logger.info("[scrape_library] start")
         soup = self._session.get_soup(self._session.base_url + "/library")
         self._detect_redirect(soup)
 
@@ -170,7 +172,8 @@ class GumroadScrapper:
             self._logger.info("'uploaded_at' is not available!")
             sys.exit()
 
-        product_folder: "Path" = self._root_folder / product_creator / product_folder_name
+        # product_folder: "Path" = self._root_folder / product_creator / product_folder_name
+        product_folder: "Path" = self._root_folder / product_folder_name
 
         # NOTE(obsessedcake): We might be able to download everything in a single zip archive.
         #   Download all -> Download as ZIP
@@ -218,7 +221,8 @@ class GumroadScrapper:
                     files_count += 1
                     continue
 
-                folder_name = item["name"]
+                folder_name = _sanitize_string(item["name"])
+                logging.getLogger().info("folder_name: %s", folder_name)
                 _traverse_tree(
                     item["children"], tree_path / folder_name, parent_folder / folder_name
                 )
@@ -228,7 +232,7 @@ class GumroadScrapper:
                     continue
 
                 file_id = item["id"]
-                file_name = item["file_name"]
+                file_name = _sanitize_string(item["file_name"])
                 file_type = item["extension"].lower()
 
                 logging.getLogger().info(
@@ -268,8 +272,11 @@ class GumroadScrapper:
     def _scrap_recipe_page(self, url: str) -> str:
         soup = self._session.get_soup(url)
 
-        payment_info = soup.select_one(".main > div:nth-child(1) > div").string
-        price = payment_info.strip().split("\n")[0]  # \n$9.99\n— VISA *0000
+        if soup.select_one(".main > div:nth-child(1) > div") is None:
+            return "Free"
+        else:
+            payment_info = soup.select_one(".main > div:nth-child(1) > div").string
+            price = payment_info.strip().split("\n")[0]  # \n$9.99\n— VISA *0000
 
         return price
 
@@ -296,6 +303,7 @@ class GumroadScrapper:
         response = self._session.get(url, stream=True)
         response.raise_for_status()
 
+        logging.getLogger().info("response.content-length: %s", response.headers.get("content-length", 0))
         total_size_in_bytes = int(response.headers.get("content-length", 0))
         if total_size_in_bytes == 0:
             self._logger.warning(
