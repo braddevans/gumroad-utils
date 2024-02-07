@@ -127,12 +127,12 @@ class GumroadScrapper:
                 self._logger.info("Skipping %r product of %r.", product, creator)
                 continue
 
-            if "is_bundle" in set(result["product"]):
-                if result["product"]["is_bundle"]:
-                    self._logger.info(
-                        "Skipping %r product of %r because it's a bundle!", product, creator
-                    )
-                    continue
+            # merge obsessedcake:main/:e83e6d499087fb7151bff48e4e83707dca2caadc
+            if result["purchase"]["is_bundle_purchase"]:
+                self._logger.info(
+                    "Skipping %r product of %r because it's a bundle!", product, creator
+                )
+                continue
 
             updated_at = datetime.fromisoformat(result["product"]["updated_at"].split("T")[0]).date()
             self.scrap_product_page(result["purchase"]["download_url"], updated_at)
